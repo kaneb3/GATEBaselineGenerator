@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TV Baseline Generator</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e4e4e7;
+    --muted: #71717a;
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --green-bg: rgba(34,197,94,0.12);
+    --yellow-bg: rgba(234,179,8,0.12);
+    --red-bg: rgba(239,68,68,0.12);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg); color: var(--text);
+    min-height: 100vh; padding: 2rem;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 0.25rem; }
+  .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: 12px;
+    padding: 3rem 2rem; text-align: center; cursor: pointer;
+    transition: all 0.2s; background: var(--surface);
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent); background: rgba(99,102,241,0.06);
+  }
+  .drop-zone h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+  .drop-zone p { color: var(--muted); font-size: 0.85rem; }
+  .drop-zone input { display: none; }
+
+  .status {
+    margin-top: 1.5rem; padding: 1.25rem; border-radius: 10px;
+    background: var(--surface); border: 1px solid var(--border);
+    display: none;
+  }
+  .status.visible { display: block; }
+  .status h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.75rem; }
+
+  .progress-bar {
+    height: 6px; background: var(--border); border-radius: 3px;
+    overflow: hidden; margin-bottom: 1rem;
+  }
+  .progress-bar .fill {
+    height: 100%; background: var(--accent); border-radius: 3px;
+    transition: width 0.3s; width: 0%;
+  }
+
+  .file-list { list-style: none; font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; max-height: 200px; overflow-y: auto; }
+  .file-list li { padding: 0.2rem 0; }
+  .file-list li .check { color: var(--green); margin-right: 0.4rem; }
+
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem; margin: 1rem 0;
+  }
+  .stat-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1rem; text-align: center;
+  }
+  .stat-card .value { font-size: 1.5rem; font-weight: 700; }
+  .stat-card .label { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
+  .stat-card.green .value { color: var(--green); }
+  .stat-card.yellow .value { color: var(--yellow); }
+  .stat-card.red .value { color: var(--red); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.7rem 1.5rem; border: none; border-radius: 8px;
+    font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    transition: all 0.15s; margin-top: 0.5rem;
+  }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .review-section { margin-top: 1.5rem; display: none; }
+  .review-section.visible { display: block; }
+  .review-section h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.75rem; }
+
+  .review-table-wrap {
+    max-height: 400px; overflow: auto; border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  thead th {
+    background: var(--surface); position: sticky; top: 0;
+    padding: 0.6rem 0.75rem; text-align: left; font-weight: 600;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  tbody td {
+    padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tr.fuzzy td { background: var(--yellow-bg); }
+  tr.miss td { background: var(--red-bg); }
+  tr.exact td { background: var(--green-bg); }
+
+  .legend {
+    display: flex; gap: 1.5rem; font-size: 0.78rem; color: var(--muted);
+    margin-top: 0.75rem;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .dot.green { background: var(--green); }
+  .dot.yellow { background: var(--yellow); }
+  .dot.red { background: var(--red); }
+
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .tab {
+    padding: 0.4rem 1rem; border-radius: 6px; font-size: 0.82rem;
+    cursor: pointer; background: var(--bg); border: 1px solid var(--border);
+    color: var(--muted); font-weight: 500; transition: all 0.15s;
+  }
+  .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>TV Baseline Generator</h1>
+  <p class="subtitle">Drop Dyson commitment template files to generate a TV CPU Yearly baseline with channel and demo matching.</p>
+
+  <div class="drop-zone" id="dropZone">
+    <h2>Drop commitment files here</h2>
+    <p>or click to browse (.xlsx files)</p>
+    <input type="file" id="fileInput" multiple accept=".xlsx,.xls">
+  </div>
+
+  <div class="status" id="status">
+    <h3 id="statusTitle">Processing...</h3>
+    <div class="progress-bar"><div class="fill" id="progressFill"></div></div>
+    <ul class="file-list" id="fileList"></ul>
+  </div>
+
+  <div class="status" id="results" style="display:none">
+    <h3>Results</h3>
+    <div class="stats-grid" id="statsGrid"></div>
+    <button class="btn btn-primary" id="downloadBtn" disabled>Download Baseline .xlsx</button>
+  </div>
+
+  <div class="review-section" id="reviewSection">
+    <h3>Review Non-Exact Matches</h3>
+    <div class="tabs" id="reviewTabs">
+      <div class="tab active" data-tab="demo">Demos</div>
+      <div class="tab" data-tab="channel">Channels</div>
+    </div>
+    <div class="review-table-wrap">
+      <table><thead id="reviewHead"></thead><tbody id="reviewBody"></tbody></table>
+    </div>
+    <div class="legend">
+      <span><span class="dot green"></span> Exact match</span>
+      <span><span class="dot yellow"></span> Fuzzy match (review)</span>
+      <span><span class="dot red"></span> No match</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================================
+// GLOBALS
+// ============================================================================
+let CHANNELS = {};
+let DEMOS = {};
+let CHANNELS_FULL = [];
+let DEMOS_FULL = [];
+let outputWorkbook = null;
+let reviewData = { demo: [], channel: [] };
+
+// ============================================================================
+// FUZZY MATCHING ENGINE
+// ============================================================================
+function stripSpaces(s) { return s.replace(/\s+/g, ''); }
+
+function normalizeAggressive(s) {
+  return s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+const DEMO_GENDER = {
+  w:'f', women:'f', woman:'f', fem:'f', female:'f',
+  m:'m', men:'m', male:'m', a:'a', ad:'a', adults:'a', adult:'a',
+  adlt:'a', ap:'a', p:'p', ind:'a', individuos:'a', mf:'a', ens:'a', hh:'hh',
+};
+
+function normalizeDemoAggressive(name) {
+  const n = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim();
+  const m = n.match(/^([A-Za-z]+)\s*(\d.*)$/);
+  if (m) {
+    const prefix = (DEMO_GENDER[m[1].toLowerCase()] || m[1].toLowerCase()).toUpperCase();
+    const suffix = m[2].replace(/[^a-z0-9+]/gi, '').toLowerCase();
+    return (prefix + suffix).toLowerCase().replace(/[^a-z0-9+]/g, '');
+  }
+  return n.toLowerCase().replace(/[^a-z0-9+]/g, '');
+}
+
+function sequenceMatcherRatio(a, b) {
+  if (!a || !b) return 0;
+  const al = a.toLowerCase(), bl = b.toLowerCase();
+  if (al === bl) return 1;
+  const len = al.length + bl.length;
+  if (len === 0) return 1;
+  let matches = 0;
+  const used = new Array(bl.length).fill(false);
+  for (let i = 0; i < al.length; i++) {
+    for (let j = 0; j < bl.length; j++) {
+      if (!used[j] && al[i] === bl[j]) {
+        matches++;
+        used[j] = true;
+        break;
+      }
+    }
+  }
+  return (2 * matches) / len;
+}
+
+function lcsRatio(a, b) {
+  if (!a || !b) return 0;
+  const al = a.toLowerCase(), bl = b.toLowerCase();
+  const m = al.length, n = bl.length;
+  if (m === 0 || n === 0) return 0;
+  let prev = new Array(n + 1).fill(0);
+  let curr = new Array(n + 1).fill(0);
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (al[i-1] === bl[j-1]) curr[j] = prev[j-1] + 1;
+      else curr[j] = Math.max(prev[j], curr[j-1]);
+    }
+    [prev, curr] = [curr, prev];
+    curr.fill(0);
+  }
+  return (2 * prev[n]) / (m + n);
+}
+
+class FuzzyMatcher {
+  constructor(lookup, isDemo = false, threshold = 0.80) {
+    this.lookup = lookup;
+    this.names = Object.keys(lookup);
+    this.isDemo = isDemo;
+    this.threshold = threshold;
+    this.cache = {};
+
+    this.lowerMap = {};
+    this.nospaceMap = {};
+    this.aggressiveMap = {};
+    this.demoNormMap = {};
+
+    for (const n of this.names) {
+      const lk = n.toLowerCase().trim();
+      if (!this.lowerMap[lk]) this.lowerMap[lk] = n;
+      const ns = stripSpaces(n).toLowerCase();
+      if (!this.nospaceMap[ns]) this.nospaceMap[ns] = n;
+      const ag = normalizeAggressive(n);
+      if (!this.aggressiveMap[ag]) this.aggressiveMap[ag] = n;
+      if (isDemo) {
+        const dn = normalizeDemoAggressive(n);
+        if (!this.demoNormMap[dn]) this.demoNormMap[dn] = n;
+      }
+    }
+  }
+
+  match(value) {
+    if (!value || !value.trim()) return { name: null, id: null, tier: null };
+    const v = value.trim();
+    if (this.cache[v]) return this.cache[v];
+
+    let result;
+    if (this.lookup[v] !== undefined) {
+      result = { name: v, id: this.lookup[v], tier: 'exact' };
+    } else if (this.lowerMap[v.toLowerCase().trim()]) {
+      const n = this.lowerMap[v.toLowerCase().trim()];
+      result = { name: n, id: this.lookup[n], tier: 'case' };
+    } else if (this.nospaceMap[stripSpaces(v).toLowerCase()]) {
+      const n = this.nospaceMap[stripSpaces(v).toLowerCase()];
+      result = { name: n, id: this.lookup[n], tier: 'whitespace' };
+    } else if (this.aggressiveMap[normalizeAggressive(v)]) {
+      const n = this.aggressiveMap[normalizeAggressive(v)];
+      result = { name: n, id: this.lookup[n], tier: 'normalize' };
+    } else if (this.isDemo && this.demoNormMap[normalizeDemoAggressive(v)]) {
+      const n = this.demoNormMap[normalizeDemoAggressive(v)];
+      result = { name: n, id: this.lookup[n], tier: 'demo_norm' };
+    } else {
+      let bestScore = 0, bestName = null;
+      const vl = v.toLowerCase().trim();
+      for (const n of this.names) {
+        const score = lcsRatio(vl, n.toLowerCase().trim());
+        if (score > bestScore) { bestScore = score; bestName = n; }
+      }
+      if (bestScore >= this.threshold && bestName) {
+        result = { name: bestName, id: this.lookup[bestName], tier: 'fuzzy' };
+      } else {
+        result = { name: null, id: null, tier: null };
+      }
+    }
+    this.cache[v] = result;
+    return result;
+  }
+}
+
+// ============================================================================
+// EXCEL PARSING
+// ============================================================================
+function cellVal(ws, addr) {
+  const cell = ws[addr];
+  return cell ? cell.v : null;
+}
+
+function cellStr(ws, addr) {
+  const v = cellVal(ws, addr);
+  return v != null ? String(v).trim() : '';
+}
+
+function parseCommitmentFile(data, filename) {
+  const wb = XLSX.read(data, { type: 'array' });
+  const rows = [];
+  const market = extractMarket(filename);
+
+  let countryName = market;
+  const csName = wb.SheetNames.find(s => s === 'Contact details');
+  if (csName) {
+    const cs = wb.Sheets[csName];
+    for (let r = 12; r <= 22; r++) {
+      const label = cellStr(cs, 'B' + r);
+      const val = cellStr(cs, 'C' + r);
+      if (label.includes('Country') && val) countryName = val;
+    }
+  }
+
+  for (const sn of wb.SheetNames) {
+    if (!sn.startsWith('TV - ') && !sn.startsWith('TV -  ')) continue;
+    const ws = wb.Sheets[sn];
+    let targetGroup = '', natRegional = '';
+
+    for (let r = 16; r <= 22; r++) {
+      const label = cellStr(ws, 'B' + r);
+      const val = cellStr(ws, 'C' + r);
+      if (label.includes('Target group') && val) targetGroup = val;
+      if (label.includes('National/Regional') && val) natRegional = val;
+    }
+
+    for (let r = 26; r <= 1700; r++) {
+      const channel = cellStr(ws, 'B' + r);
+      if (!channel) continue;
+      const cpp = cellVal(ws, 'U' + r);
+      if (cpp == null || cpp === 0) continue;
+      const costType = cellStr(ws, 'T' + r) || 'CPP';
+      const salesHouse = cellStr(ws, 'C' + r);
+      const agencyComm = cellVal(ws, 'S' + r);
+
+      rows.push({
+        country: countryName,
+        costType,
+        sourceDemo: targetGroup,
+        sourceChannel: channel,
+        tvType: natRegional || 'National',
+        market,
+        dealName: "Dyson '26",
+        comments: salesHouse ? 'Sales House: ' + salesHouse : '',
+        repYear: "Dyson '26 Mar-Dec",
+        cppCommit: cpp,
+        discount: agencyComm || '',
+      });
+    }
+  }
+  return rows;
+}
+
+function extractMarket(filename) {
+  const m = filename.match(/_For_([^_]+)_/);
+  return m ? m[1] : filename.replace(/\.xlsx?$/i, '');
+}
+
+// ============================================================================
+// OUTPUT GENERATION
+// ============================================================================
+function buildOutputWorkbook(allRows, chMatcher, dmMatcher) {
+  const wb = XLSX.utils.book_new();
+  const stats = { dExact:0, dFuzzy:0, dMiss:0, cExact:0, cFuzzy:0, cMiss:0 };
+  reviewData = { demo: [], channel: [] };
+  const demoSeen = {}, channelSeen = {};
+  const demoCounts = {}, channelCounts = {};
+
+  for (const row of allRows) {
+    demoCounts[row.sourceDemo] = (demoCounts[row.sourceDemo] || 0) + 1;
+    channelCounts[row.sourceChannel] = (channelCounts[row.sourceChannel] || 0) + 1;
+  }
+
+  const headers = [
+    'ID','Country','Cost Type','Source Demo','Demo','TV Type',
+    'Market','Source Channel','Channel','Daypart','Deal Name',
+    'Comments','Rep Year','CPP Commit','Discount','Eq GRP Commit',
+    '','Demo match','Source demo match','Channel match','source channel match'
+  ];
+  const aoa = [headers];
+
+  for (let i = 0; i < allRows.length; i++) {
+    const row = allRows[i];
+    const dm = dmMatcher.match(row.sourceDemo);
+    const ch = chMatcher.match(row.sourceChannel);
+
+    if (dm.tier === 'exact') stats.dExact++;
+    else if (dm.tier) stats.dFuzzy++;
+    else stats.dMiss++;
+
+    if (ch.tier === 'exact') stats.cExact++;
+    else if (ch.tier) stats.cFuzzy++;
+    else stats.cMiss++;
+
+    if (!demoSeen[row.sourceDemo]) {
+      demoSeen[row.sourceDemo] = true;
+      if (dm.tier !== 'exact') {
+        reviewData.demo.push({
+          source: row.sourceDemo,
+          matched: dm.name || 'NO MATCH',
+          id: dm.id,
+          tier: tierLabel(dm.tier),
+          tierRaw: dm.tier,
+          count: demoCounts[row.sourceDemo] || 0,
+        });
+      }
+    }
+    if (!channelSeen[row.sourceChannel]) {
+      channelSeen[row.sourceChannel] = true;
+      if (ch.tier !== 'exact') {
+        reviewData.channel.push({
+          source: row.sourceChannel,
+          matched: ch.name || 'NO MATCH',
+          id: ch.id,
+          tier: tierLabel(ch.tier),
+          tierRaw: ch.tier,
+          count: channelCounts[row.sourceChannel] || 0,
+        });
+      }
+    }
+
+    aoa.push([
+      i + 1, row.country, row.costType,
+      row.sourceDemo, dm.name || row.sourceDemo,
+      row.tvType, row.market,
+      row.sourceChannel, ch.name || row.sourceChannel,
+      '', row.dealName, row.comments, row.repYear,
+      row.cppCommit, row.discount, '',
+      '',
+      dm.id != null ? dm.id : 'Not found',
+      dm.id != null ? dm.id : 'Not found',
+      ch.id != null ? ch.id : 'Not found',
+      ch.id != null ? ch.id : 'Not found',
+    ]);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+
+  const chAoa = [
+    ['Channels/Stations'],
+    ['Run at', '', new Date().toLocaleDateString()],
+    ['Media Type', '', 'TV'],
+    [],
+    ['Media Type', '', 'Channel Name'],
+  ];
+  for (const c of CHANNELS_FULL) {
+    chAoa.push(['TV', c.id, c.name]);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(chAoa), 'Channels');
+
+  const dmAoa = [
+    ['Target Audiences'],
+    ['Run at', new Date().toLocaleDateString()],
+    [],
+    ['##', 'Demo Name'],
+  ];
+  for (const d of DEMOS_FULL) {
+    dmAoa.push([d.id, d.name]);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dmAoa), 'Demos');
+
+  const revAoa = [['Type', 'Source Value', 'Matched To', 'Match ID', 'Match Tier', 'Rows Affected']];
+  for (const d of reviewData.demo) {
+    revAoa.push(['Demo', d.source, d.matched, d.id || '', d.tier, d.count]);
+  }
+  revAoa.push([]);
+  for (const c of reviewData.channel) {
+    revAoa.push(['Channel', c.source, c.matched, c.id || '', c.tier, c.count]);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(revAoa), 'Review Matches');
+
+  return { wb, stats };
+}
+
+function tierLabel(tier) {
+  return {
+    exact: 'Exact', case: 'Case difference', whitespace: 'Whitespace difference',
+    normalize: 'Punctuation/unicode', demo_norm: 'Gender prefix mapping',
+    fuzzy: 'Fuzzy similarity',
+  }[tier] || 'Unmatched';
+}
+
+// ============================================================================
+// UI
+// ============================================================================
+const $ = id => document.getElementById(id);
+const dropZone = $('dropZone');
+const fileInput = $('fileInput');
+const statusDiv = $('status');
+const resultsDiv = $('results');
+const reviewSection = $('reviewSection');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+$('downloadBtn').addEventListener('click', () => {
+  if (!outputWorkbook) return;
+  XLSX.writeFile(outputWorkbook, 'Baseline - TV CPU Yearly.xlsx');
+});
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    renderReviewTable(tab.dataset.tab);
+  });
+});
+
+async function handleFiles(fileList) {
+  const files = Array.from(fileList).filter(f => /\.xlsx?$/i.test(f.name));
+  if (!files.length) return;
+
+  statusDiv.classList.add('visible');
+  resultsDiv.style.display = 'none';
+  reviewSection.classList.remove('visible');
+  $('statusTitle').textContent = 'Loading reference data...';
+  $('progressFill').style.width = '0%';
+  $('fileList').innerHTML = '';
+
+  await loadLookupData();
+
+  const chMatcher = new FuzzyMatcher(CHANNELS, false, 0.80);
+  const dmMatcher = new FuzzyMatcher(DEMOS, true, 0.75);
+
+  $('statusTitle').textContent = `Processing ${files.length} file${files.length > 1 ? 's' : ''}...`;
+  const allRows = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const pct = Math.round(((i + 1) / files.length) * 100);
+    $('progressFill').style.width = pct + '%';
+
+    const data = await file.arrayBuffer();
+    const rows = parseCommitmentFile(new Uint8Array(data), file.name);
+    allRows.push(...rows);
+
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="check">&#10003;</span>${file.name} &mdash; ${rows.length} TV rows`;
+    $('fileList').appendChild(li);
+  }
+
+  $('statusTitle').textContent = 'Running fuzzy matching...';
+  $('progressFill').style.width = '100%';
+
+  await new Promise(r => setTimeout(r, 50));
+
+  const { wb, stats } = buildOutputWorkbook(allRows, chMatcher, dmMatcher);
+  outputWorkbook = wb;
+
+  $('statusTitle').textContent = `Done! ${allRows.length} rows from ${files.length} file${files.length > 1 ? 's' : ''}.`;
+
+  const total = allRows.length;
+  $('statsGrid').innerHTML = `
+    <div class="stat-card"><div class="value">${total}</div><div class="label">Total TV Rows</div></div>
+    <div class="stat-card green"><div class="value">${stats.dExact}</div><div class="label">Demo Exact</div></div>
+    <div class="stat-card yellow"><div class="value">${stats.dFuzzy}</div><div class="label">Demo Fuzzy</div></div>
+    <div class="stat-card red"><div class="value">${stats.dMiss}</div><div class="label">Demo No Match</div></div>
+    <div class="stat-card green"><div class="value">${stats.cExact}</div><div class="label">Channel Exact</div></div>
+    <div class="stat-card yellow"><div class="value">${stats.cFuzzy}</div><div class="label">Channel Fuzzy</div></div>
+    <div class="stat-card red"><div class="value">${stats.cMiss}</div><div class="label">Channel No Match</div></div>
+  `;
+
+  resultsDiv.style.display = 'block';
+  $('downloadBtn').disabled = false;
+
+  reviewSection.classList.add('visible');
+  renderReviewTable('demo');
+}
+
+function renderReviewTable(type) {
+  const data = reviewData[type] || [];
+  $('reviewHead').innerHTML = '<tr><th>Source Value</th><th>Matched To</th><th>ID</th><th>Match Tier</th><th>Rows</th></tr>';
+  $('reviewBody').innerHTML = '';
+  const sorted = [...data].sort((a, b) => {
+    if (!a.tierRaw && b.tierRaw) return 1;
+    if (a.tierRaw && !b.tierRaw) return -1;
+    return a.source.localeCompare(b.source);
+  });
+  for (const d of sorted) {
+    const cls = d.tierRaw ? 'fuzzy' : 'miss';
+    const tr = document.createElement('tr');
+    tr.className = cls;
+    tr.innerHTML = `<td>${esc(d.source)}</td><td>${esc(d.matched)}</td><td>${d.id || ''}</td><td>${esc(d.tier)}</td><td>${d.count}</td>`;
+    $('reviewBody').appendChild(tr);
+  }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function loadLookupData() {
+  if (Object.keys(CHANNELS).length > 0) return;
+  try {
+    const base = new URL('.', window.location.href).href;
+    const [chRes, dmRes, chfRes, dmfRes] = await Promise.all([
+      fetch(base + 'data/channels.json'),
+      fetch(base + 'data/demos.json'),
+      fetch(base + 'data/channels_full.json'),
+      fetch(base + 'data/demos_full.json'),
+    ]);
+    CHANNELS = await chRes.json();
+    DEMOS = await dmRes.json();
+    CHANNELS_FULL = await chfRes.json();
+    DEMOS_FULL = await dmfRes.json();
+  } catch (e) {
+    console.error('Failed to load lookup data:', e);
+    alert('Error loading reference data. Make sure channels.json and demos.json are in the data/ folder.');
+  }
+}
+</script>
+</body>
+</html>
