@@ -125,17 +125,6 @@
     <span class="hint">More template types coming soon</span>
   </div>
 
-  <div class="template-selector">
-    <label for="mediaType">Media Type</label>
-    <select id="mediaType">
-      <option value="tv" selected>TV</option>
-      <option value="digital">Digital Categories</option>
-      <option value="social">Social</option>
-      <option value="programmatic">Programmatic</option>
-      <option value="ooh">OOH</option>
-    </select>
-  </div>
-
   <div class="drop-zone" id="dropZone">
     <h2>Drag &amp; drop files here</h2>
     <p>or <a id="browseLink">browse</a></p>
@@ -151,7 +140,7 @@
   <div class="status" id="results" style="display:none">
     <h3>Results</h3>
     <div class="stats-grid" id="statsGrid"></div>
-    <button class="btn btn-primary" id="downloadBtn" disabled>Download Baseline .xlsx</button>
+    <div id="downloadArea" style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem;"></div>
   </div>
 </div>
 
@@ -163,7 +152,6 @@ let CHANNELS = {};
 let DEMOS = {};
 let CHANNELS_FULL = [];
 let DEMOS_FULL = [];
-let outputWorkbook = null;
 let reviewData = { demo: [], channel: [] };
 
 // ============================================================================
@@ -750,57 +738,41 @@ dropZone.addEventListener('drop', e => {
 });
 fileInput.addEventListener('change', e => handleFiles(e.target.files));
 
-const MEDIA_LABELS = {
-  tv: 'TV', digital: 'Digital Categories', social: 'Social',
-  programmatic: 'Programmatic', ooh: 'OOH'
-};
-const DOWNLOAD_NAMES = {
-  tv: 'Baseline - TV CPU Yearly.xlsx',
-  digital: 'Baseline - Digital Categories.xlsx',
-  social: 'Baseline - Social.xlsx',
-  programmatic: 'Baseline - Programmatic Categories.xlsx',
-  ooh: 'Baseline - OOH.xlsx',
-};
-let currentMediaType = 'tv';
+const outputWorkbooks = {};
 
-$('downloadBtn').addEventListener('click', async () => {
-  if (!outputWorkbook) return;
-  $('downloadBtn').disabled = true;
-  $('downloadBtn').textContent = 'Generating...';
-  try {
-    const buffer = await outputWorkbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = DOWNLOAD_NAMES[currentMediaType] || 'Baseline.xlsx';
-    a.click();
-    URL.revokeObjectURL(url);
-  } finally {
-    $('downloadBtn').disabled = false;
-    $('downloadBtn').textContent = 'Download Baseline .xlsx';
-  }
-});
+async function downloadWorkbook(key) {
+  const wb = outputWorkbooks[key];
+  if (!wb) return;
+  const names = {
+    tv: 'Baseline - TV CPU Yearly.xlsx',
+    digital: 'Baseline - Digital Categories.xlsx',
+    social: 'Baseline - Social.xlsx',
+    programmatic: 'Baseline - Programmatic Categories.xlsx',
+    ooh: 'Baseline - OOH.xlsx',
+  };
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = names[key] || 'Baseline.xlsx';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 async function handleFiles(fileList) {
   const files = Array.from(fileList).filter(f => /\.xlsx?$/i.test(f.name));
   if (!files.length) return;
 
-  currentMediaType = $('mediaType').value;
-  const label = MEDIA_LABELS[currentMediaType];
-
   statusDiv.classList.add('visible');
   resultsDiv.style.display = 'none';
   $('progressFill').style.width = '0%';
   $('fileList').innerHTML = '';
+  $('statusTitle').textContent = 'Loading reference data...';
 
-  if (currentMediaType === 'tv') {
-    $('statusTitle').textContent = 'Loading reference data...';
-    await loadLookupData();
-  } else {
-    $('statusTitle').textContent = `Processing ${files.length} file${files.length > 1 ? 's' : ''}...`;
-  }
+  await loadLookupData();
 
+  $('statusTitle').textContent = `Processing ${files.length} file${files.length > 1 ? 's' : ''}...`;
   const allTV = [], allDigital = [], allSocial = [], allProg = [], allOOH = [];
 
   for (let i = 0; i < files.length; i++) {
@@ -809,73 +781,94 @@ async function handleFiles(fileList) {
     $('progressFill').style.width = pct + '%';
     const data = await file.arrayBuffer();
     const arr = new Uint8Array(data);
-    let rowCount = 0;
 
-    if (currentMediaType === 'tv') {
-      const rows = parseCommitmentFile(arr, file.name);
-      allTV.push(...rows);
-      rowCount = rows.length;
-    } else if (currentMediaType === 'ooh') {
-      const rows = parseOOHFile(arr, file.name);
-      allOOH.push(...rows);
-      rowCount = rows.length;
-    } else {
-      const { digital, social, programmatic } = parseDigitalFile(arr, file.name);
-      allDigital.push(...digital);
-      allSocial.push(...social);
-      allProg.push(...programmatic);
-      if (currentMediaType === 'digital') rowCount = digital.length;
-      else if (currentMediaType === 'social') rowCount = social.length;
-      else rowCount = programmatic.length;
-    }
+    const tvRows = parseCommitmentFile(arr, file.name);
+    allTV.push(...tvRows);
+
+    const { digital, social, programmatic } = parseDigitalFile(arr, file.name);
+    allDigital.push(...digital);
+    allSocial.push(...social);
+    allProg.push(...programmatic);
+
+    const oohRows = parseOOHFile(arr, file.name);
+    allOOH.push(...oohRows);
+
+    const parts = [];
+    if (tvRows.length) parts.push(`${tvRows.length} TV`);
+    if (digital.length) parts.push(`${digital.length} Digital`);
+    if (social.length) parts.push(`${social.length} Social`);
+    if (programmatic.length) parts.push(`${programmatic.length} Prog`);
+    if (oohRows.length) parts.push(`${oohRows.length} OOH`);
 
     const li = document.createElement('li');
-    li.innerHTML = `<span class="check">&#10003;</span>${file.name} &mdash; ${rowCount} ${label} rows`;
+    li.innerHTML = `<span class="check">&#10003;</span>${file.name} &mdash; ${parts.join(', ') || 'no rows'}`;
     $('fileList').appendChild(li);
   }
 
-  $('statusTitle').textContent = 'Building output...';
+  $('statusTitle').textContent = 'Building output files...';
   $('progressFill').style.width = '100%';
   await new Promise(r => setTimeout(r, 50));
 
-  let totalRows = 0;
+  let statsHtml = '';
+  const dlArea = $('downloadArea');
+  dlArea.innerHTML = '';
 
-  if (currentMediaType === 'tv') {
+  if (allTV.length) {
     const chMatcher = new FuzzyMatcher(CHANNELS, false, 0.80);
     const dmMatcher = new FuzzyMatcher(DEMOS, true, 0.75);
     const { wb, stats } = buildOutputWorkbook(allTV, chMatcher, dmMatcher);
-    outputWorkbook = wb;
-    totalRows = allTV.length;
-    $('statsGrid').innerHTML = `
-      <div class="stat-card"><div class="value">${totalRows}</div><div class="label">Total TV Rows</div></div>
+    outputWorkbooks.tv = wb;
+    statsHtml += `
+      <div class="stat-card"><div class="value">${allTV.length}</div><div class="label">TV Rows</div></div>
       <div class="stat-card green"><div class="value">${stats.dExact}</div><div class="label">Demo Exact</div></div>
       <div class="stat-card yellow"><div class="value">${stats.dFuzzy}</div><div class="label">Demo Fuzzy</div></div>
       <div class="stat-card red"><div class="value">${stats.dMiss}</div><div class="label">Demo No Match</div></div>
       <div class="stat-card green"><div class="value">${stats.cExact}</div><div class="label">Channel Exact</div></div>
       <div class="stat-card yellow"><div class="value">${stats.cFuzzy}</div><div class="label">Channel Fuzzy</div></div>
-      <div class="stat-card red"><div class="value">${stats.cMiss}</div><div class="label">Channel No Match</div></div>
-    `;
-  } else if (currentMediaType === 'digital') {
-    outputWorkbook = buildDigitalWorkbook(allDigital);
-    totalRows = allDigital.length;
-    $('statsGrid').innerHTML = `<div class="stat-card"><div class="value">${totalRows}</div><div class="label">Total Digital Rows</div></div>`;
-  } else if (currentMediaType === 'social') {
-    outputWorkbook = buildSocialWorkbook(allSocial);
-    totalRows = allSocial.length;
-    $('statsGrid').innerHTML = `<div class="stat-card"><div class="value">${totalRows}</div><div class="label">Total Social Rows</div></div>`;
-  } else if (currentMediaType === 'programmatic') {
-    outputWorkbook = buildProgrammaticWorkbook(allProg);
-    totalRows = allProg.length;
-    $('statsGrid').innerHTML = `<div class="stat-card"><div class="value">${totalRows}</div><div class="label">Total Programmatic Rows</div></div>`;
-  } else if (currentMediaType === 'ooh') {
-    outputWorkbook = buildOOHWorkbook(allOOH);
-    totalRows = allOOH.length;
-    $('statsGrid').innerHTML = `<div class="stat-card"><div class="value">${totalRows}</div><div class="label">Total OOH Rows</div></div>`;
+      <div class="stat-card red"><div class="value">${stats.cMiss}</div><div class="label">Channel No Match</div></div>`;
+    addDlBtn(dlArea, 'tv', 'TV CPU Yearly');
+  }
+  if (allDigital.length) {
+    outputWorkbooks.digital = buildDigitalWorkbook(allDigital);
+    statsHtml += `<div class="stat-card"><div class="value">${allDigital.length}</div><div class="label">Digital Rows</div></div>`;
+    addDlBtn(dlArea, 'digital', 'Digital Categories');
+  }
+  if (allSocial.length) {
+    outputWorkbooks.social = buildSocialWorkbook(allSocial);
+    statsHtml += `<div class="stat-card"><div class="value">${allSocial.length}</div><div class="label">Social Rows</div></div>`;
+    addDlBtn(dlArea, 'social', 'Social');
+  }
+  if (allProg.length) {
+    outputWorkbooks.programmatic = buildProgrammaticWorkbook(allProg);
+    statsHtml += `<div class="stat-card"><div class="value">${allProg.length}</div><div class="label">Programmatic Rows</div></div>`;
+    addDlBtn(dlArea, 'programmatic', 'Programmatic');
+  }
+  if (allOOH.length) {
+    outputWorkbooks.ooh = buildOOHWorkbook(allOOH);
+    statsHtml += `<div class="stat-card"><div class="value">${allOOH.length}</div><div class="label">OOH Rows</div></div>`;
+    addDlBtn(dlArea, 'ooh', 'OOH');
   }
 
-  $('statusTitle').textContent = `Done! ${totalRows} ${label} rows from ${files.length} file${files.length > 1 ? 's' : ''}.`;
+  $('statsGrid').innerHTML = statsHtml;
+
+  const totalRows = allTV.length + allDigital.length + allSocial.length + allProg.length + allOOH.length;
+  const mediaFound = [allTV.length && 'TV', allDigital.length && 'Digital', allSocial.length && 'Social',
+    allProg.length && 'Programmatic', allOOH.length && 'OOH'].filter(Boolean);
+  $('statusTitle').textContent = `Done! ${totalRows} rows across ${mediaFound.join(', ')} from ${files.length} file${files.length > 1 ? 's' : ''}.`;
   resultsDiv.style.display = 'block';
-  $('downloadBtn').disabled = false;
+}
+
+function addDlBtn(container, key, label) {
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-primary';
+  btn.textContent = `Download ${label}`;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+    try { await downloadWorkbook(key); }
+    finally { btn.disabled = false; btn.textContent = `Download ${label}`; }
+  });
+  container.appendChild(btn);
 }
 
 async function loadLookupData() {
