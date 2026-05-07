@@ -3,153 +3,120 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TV Baseline Generator</title>
+<title>GATE Baseline Generator</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <style>
   :root {
-    --bg: #0f1117;
-    --surface: #1a1d27;
-    --border: #2a2d3a;
-    --text: #e4e4e7;
-    --muted: #71717a;
-    --accent: #6366f1;
-    --accent-hover: #818cf8;
-    --green: #22c55e;
-    --yellow: #eab308;
-    --red: #ef4444;
-    --green-bg: rgba(34,197,94,0.12);
-    --yellow-bg: rgba(234,179,8,0.12);
-    --red-bg: rgba(239,68,68,0.12);
+    --bg: #f5f5f5;
+    --surface: #ffffff;
+    --border: #e0e0e0;
+    --text: #333333;
+    --muted: #888888;
+    --accent: #c0392b;
+    --accent-hover: #a93226;
+    --green: #27ae60;
+    --yellow: #f39c12;
+    --red: #c0392b;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     background: var(--bg); color: var(--text);
-    min-height: 100vh; padding: 2rem;
+    min-height: 100vh;
   }
-  .container { max-width: 1100px; margin: 0 auto; }
-  h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 0.25rem; }
-  .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+
+  .top-bar {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 0.9rem 2rem; text-align: center;
+  }
+  .top-bar h1 {
+    font-size: 1.25rem; font-weight: 600; color: var(--text);
+    letter-spacing: 0.02em;
+  }
+
+  .container { max-width: 900px; margin: 0 auto; padding: 2rem; }
 
   .drop-zone {
-    border: 2px dashed var(--border); border-radius: 12px;
-    padding: 3rem 2rem; text-align: center; cursor: pointer;
+    border: 2px dashed var(--border); border-radius: 6px;
+    padding: 2.5rem 2rem; text-align: center; cursor: pointer;
     transition: all 0.2s; background: var(--surface);
   }
   .drop-zone:hover, .drop-zone.dragover {
-    border-color: var(--accent); background: rgba(99,102,241,0.06);
+    border-color: var(--accent); background: #fdf2f2;
   }
-  .drop-zone h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
-  .drop-zone p { color: var(--muted); font-size: 0.85rem; }
+  .drop-zone h2 { font-size: 0.95rem; font-weight: 500; color: var(--text); margin-bottom: 0.35rem; }
+  .drop-zone p { color: var(--muted); font-size: 0.82rem; }
+  .drop-zone p a { color: var(--accent); text-decoration: none; cursor: pointer; }
+  .drop-zone p a:hover { text-decoration: underline; }
   .drop-zone input { display: none; }
 
   .status {
-    margin-top: 1.5rem; padding: 1.25rem; border-radius: 10px;
+    margin-top: 1.25rem; padding: 1.25rem; border-radius: 6px;
     background: var(--surface); border: 1px solid var(--border);
     display: none;
   }
   .status.visible { display: block; }
-  .status h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.75rem; }
+  .status h3 { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--text); }
 
   .progress-bar {
-    height: 6px; background: var(--border); border-radius: 3px;
+    height: 4px; background: var(--border); border-radius: 2px;
     overflow: hidden; margin-bottom: 1rem;
   }
   .progress-bar .fill {
-    height: 100%; background: var(--accent); border-radius: 3px;
+    height: 100%; background: var(--accent); border-radius: 2px;
     transition: width 0.3s; width: 0%;
   }
 
-  .file-list { list-style: none; font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; max-height: 200px; overflow-y: auto; }
+  .file-list { list-style: none; font-size: 0.82rem; color: var(--muted); margin-bottom: 1rem; max-height: 200px; overflow-y: auto; }
   .file-list li { padding: 0.2rem 0; }
   .file-list li .check { color: var(--green); margin-right: 0.4rem; }
 
   .stats-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 0.75rem; margin: 1rem 0;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 0.6rem; margin: 1rem 0;
   }
   .stat-card {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    padding: 1rem; text-align: center;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 0.75rem 0.5rem; text-align: center;
   }
-  .stat-card .value { font-size: 1.5rem; font-weight: 700; }
-  .stat-card .label { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
+  .stat-card .value { font-size: 1.35rem; font-weight: 700; }
+  .stat-card .label { font-size: 0.7rem; color: var(--muted); margin-top: 0.2rem; }
   .stat-card.green .value { color: var(--green); }
   .stat-card.yellow .value { color: var(--yellow); }
   .stat-card.red .value { color: var(--red); }
 
   .btn {
     display: inline-flex; align-items: center; gap: 0.5rem;
-    padding: 0.7rem 1.5rem; border: none; border-radius: 8px;
-    font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    padding: 0.55rem 1.25rem; border: none; border-radius: 4px;
+    font-size: 0.85rem; font-weight: 600; cursor: pointer;
     transition: all 0.15s; margin-top: 0.5rem;
   }
   .btn-primary { background: var(--accent); color: white; }
   .btn-primary:hover { background: var(--accent-hover); }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  .review-section { margin-top: 1.5rem; display: none; }
-  .review-section.visible { display: block; }
-  .review-section h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.75rem; }
-
-  .review-table-wrap {
-    max-height: 400px; overflow: auto; border: 1px solid var(--border);
-    border-radius: 8px;
-  }
-  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-  thead th {
-    background: var(--surface); position: sticky; top: 0;
-    padding: 0.6rem 0.75rem; text-align: left; font-weight: 600;
-    border-bottom: 1px solid var(--border); white-space: nowrap;
-  }
-  tbody td {
-    padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-  }
-  tr.fuzzy td { background: var(--yellow-bg); }
-  tr.miss td { background: var(--red-bg); }
-  tr.exact td { background: var(--green-bg); }
-
-  .legend {
-    display: flex; gap: 1.5rem; font-size: 0.78rem; color: var(--muted);
-    margin-top: 0.75rem;
-  }
-  .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-  .dot.green { background: var(--green); }
-  .dot.yellow { background: var(--yellow); }
-  .dot.red { background: var(--red); }
-
-  .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
-  .tab {
-    padding: 0.4rem 1rem; border-radius: 6px; font-size: 0.82rem;
-    cursor: pointer; background: var(--bg); border: 1px solid var(--border);
-    color: var(--muted); font-weight: 500; transition: all 0.15s;
-  }
-  .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
-
   .template-selector {
     display: flex; align-items: center; gap: 0.75rem;
-    margin-bottom: 1.25rem; padding: 1rem 1.25rem;
+    margin-bottom: 1rem; padding: 0.85rem 1rem;
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 6px;
   }
-  .template-selector label { font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+  .template-selector label { font-size: 0.82rem; font-weight: 600; white-space: nowrap; color: var(--text); }
   .template-selector select {
-    padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.85rem;
+    padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.82rem;
     background: var(--bg); color: var(--text); border: 1px solid var(--border);
-    cursor: pointer; min-width: 200px;
+    cursor: pointer; min-width: 180px;
   }
   .template-selector select:focus { outline: none; border-color: var(--accent); }
-  .template-selector .hint { font-size: 0.78rem; color: var(--muted); }
+  .template-selector .hint { font-size: 0.75rem; color: var(--muted); }
 </style>
 </head>
 <body>
+<div class="top-bar">
+  <h1>GATE Baseline Generator</h1>
+</div>
 <div class="container">
-  <h1>TV Baseline Generator</h1>
-  <p class="subtitle">Drop Dyson commitment template files to generate a TV CPU Yearly baseline with channel and demo matching.</p>
-
   <div class="template-selector">
     <label for="templateType">Commitment Template Type</label>
     <select id="templateType">
@@ -159,8 +126,8 @@
   </div>
 
   <div class="drop-zone" id="dropZone">
-    <h2>Drop commitment files here</h2>
-    <p>or click to browse (.xlsx files)</p>
+    <h2>Drag &amp; drop files here</h2>
+    <p>or <a id="browseLink">browse</a></p>
     <input type="file" id="fileInput" multiple accept=".xlsx,.xls">
   </div>
 
@@ -174,22 +141,6 @@
     <h3>Results</h3>
     <div class="stats-grid" id="statsGrid"></div>
     <button class="btn btn-primary" id="downloadBtn" disabled>Download Baseline .xlsx</button>
-  </div>
-
-  <div class="review-section" id="reviewSection">
-    <h3>Review Non-Exact Matches</h3>
-    <div class="tabs" id="reviewTabs">
-      <div class="tab active" data-tab="demo">Demos</div>
-      <div class="tab" data-tab="channel">Channels</div>
-    </div>
-    <div class="review-table-wrap">
-      <table><thead id="reviewHead"></thead><tbody id="reviewBody"></tbody></table>
-    </div>
-    <div class="legend">
-      <span><span class="dot green"></span> Exact match</span>
-      <span><span class="dot yellow"></span> Fuzzy match (review)</span>
-      <span><span class="dot red"></span> No match</span>
-    </div>
   </div>
 </div>
 
@@ -584,8 +535,8 @@ const dropZone = $('dropZone');
 const fileInput = $('fileInput');
 const statusDiv = $('status');
 const resultsDiv = $('results');
-const reviewSection = $('reviewSection');
 
+$('browseLink').addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
 dropZone.addEventListener('click', () => fileInput.click());
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
@@ -615,21 +566,12 @@ $('downloadBtn').addEventListener('click', async () => {
   }
 });
 
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    renderReviewTable(tab.dataset.tab);
-  });
-});
-
 async function handleFiles(fileList) {
   const files = Array.from(fileList).filter(f => /\.xlsx?$/i.test(f.name));
   if (!files.length) return;
 
   statusDiv.classList.add('visible');
   resultsDiv.style.display = 'none';
-  reviewSection.classList.remove('visible');
   $('statusTitle').textContent = 'Loading reference data...';
   $('progressFill').style.width = '0%';
   $('fileList').innerHTML = '';
@@ -679,33 +621,6 @@ async function handleFiles(fileList) {
 
   resultsDiv.style.display = 'block';
   $('downloadBtn').disabled = false;
-
-  reviewSection.classList.add('visible');
-  renderReviewTable('demo');
-}
-
-function renderReviewTable(type) {
-  const data = reviewData[type] || [];
-  $('reviewHead').innerHTML = '<tr><th>Source Value</th><th>Matched To</th><th>ID</th><th>Match Tier</th><th>Rows</th></tr>';
-  $('reviewBody').innerHTML = '';
-  const sorted = [...data].sort((a, b) => {
-    if (!a.tierRaw && b.tierRaw) return 1;
-    if (a.tierRaw && !b.tierRaw) return -1;
-    return a.source.localeCompare(b.source);
-  });
-  for (const d of sorted) {
-    const cls = d.tierRaw ? 'fuzzy' : 'miss';
-    const tr = document.createElement('tr');
-    tr.className = cls;
-    tr.innerHTML = `<td>${esc(d.source)}</td><td>${esc(d.matched)}</td><td>${d.id || ''}</td><td>${esc(d.tier)}</td><td>${d.count}</td>`;
-    $('reviewBody').appendChild(tr);
-  }
-}
-
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }
 
 async function loadLookupData() {
