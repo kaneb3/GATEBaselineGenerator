@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TV Baseline Generator</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <style>
   :root {
     --bg: #0f1117;
@@ -127,12 +128,35 @@
     color: var(--muted); font-weight: 500; transition: all 0.15s;
   }
   .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+  .template-selector {
+    display: flex; align-items: center; gap: 0.75rem;
+    margin-bottom: 1.25rem; padding: 1rem 1.25rem;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .template-selector label { font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+  .template-selector select {
+    padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.85rem;
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    cursor: pointer; min-width: 200px;
+  }
+  .template-selector select:focus { outline: none; border-color: var(--accent); }
+  .template-selector .hint { font-size: 0.78rem; color: var(--muted); }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>TV Baseline Generator</h1>
   <p class="subtitle">Drop Dyson commitment template files to generate a TV CPU Yearly baseline with channel and demo matching.</p>
+
+  <div class="template-selector">
+    <label for="templateType">Commitment Template Type</label>
+    <select id="templateType">
+      <option value="gmp" selected>GMP</option>
+    </select>
+    <span class="hint">More template types coming soon</span>
+  </div>
 
   <div class="drop-zone" id="dropZone">
     <h2>Drop commitment files here</h2>
@@ -386,30 +410,64 @@ function extractMarket(filename) {
 // ============================================================================
 // OUTPUT GENERATION
 // ============================================================================
+// ExcelJS fill helpers
+const FILL_HEADER = { type:'pattern', pattern:'solid', fgColor:{argb:'FF2F5496'} };
+const FILL_REF_HEADER = { type:'pattern', pattern:'solid', fgColor:{argb:'FF4472C4'} };
+const FILL_REVIEW_HEADER = { type:'pattern', pattern:'solid', fgColor:{argb:'FF44546A'} };
+const FILL_GREEN = { type:'pattern', pattern:'solid', fgColor:{argb:'FFE2EFDA'} };
+const FILL_YELLOW = { type:'pattern', pattern:'solid', fgColor:{argb:'FFFFF2CC'} };
+const FILL_RED = { type:'pattern', pattern:'solid', fgColor:{argb:'FFFCE4EC'} };
+const FONT_HEADER = { bold:true, color:{argb:'FFFFFFFF'}, name:'Calibri', size:11 };
+const ALIGN_CENTER = { horizontal:'center', vertical:'middle' };
+
+function tierFill(tier) {
+  if (tier === 'exact') return FILL_GREEN;
+  if (tier) return FILL_YELLOW;
+  return FILL_RED;
+}
+
+function styleRow(wsRow, fill, font, alignment) {
+  wsRow.eachCell({ includeEmpty: true }, cell => {
+    if (fill) cell.fill = fill;
+    if (font) cell.font = font;
+    if (alignment) cell.alignment = alignment;
+  });
+}
+
 function buildOutputWorkbook(allRows, chMatcher, dmMatcher) {
-  const wb = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
   const stats = { dExact:0, dFuzzy:0, dMiss:0, cExact:0, cFuzzy:0, cMiss:0 };
   reviewData = { demo: [], channel: [] };
   const demoSeen = {}, channelSeen = {};
   const demoCounts = {}, channelCounts = {};
+  const demoResults = {}, channelResults = {};
 
   for (const row of allRows) {
     demoCounts[row.sourceDemo] = (demoCounts[row.sourceDemo] || 0) + 1;
     channelCounts[row.sourceChannel] = (channelCounts[row.sourceChannel] || 0) + 1;
   }
 
+  // Pre-compute matches
+  for (const row of allRows) {
+    if (!demoResults[row.sourceDemo]) demoResults[row.sourceDemo] = dmMatcher.match(row.sourceDemo);
+    if (!channelResults[row.sourceChannel]) channelResults[row.sourceChannel] = chMatcher.match(row.sourceChannel);
+  }
+
+  // ---- Sheet1: Main data ----
+  const ws = wb.addWorksheet('Sheet1');
   const headers = [
     'ID','Country','Cost Type','Source Demo','Demo','TV Type',
     'Market','Source Channel','Channel','Daypart','Deal Name',
     'Comments','Rep Year','CPP Commit','Discount','Eq GRP Commit',
     '','Demo match','Source demo match','Channel match','source channel match'
   ];
-  const aoa = [headers];
+  const hRow = ws.addRow(headers);
+  styleRow(hRow, FILL_HEADER, FONT_HEADER, ALIGN_CENTER);
 
   for (let i = 0; i < allRows.length; i++) {
     const row = allRows[i];
-    const dm = dmMatcher.match(row.sourceDemo);
-    const ch = chMatcher.match(row.sourceChannel);
+    const dm = demoResults[row.sourceDemo];
+    const ch = channelResults[row.sourceChannel];
 
     if (dm.tier === 'exact') stats.dExact++;
     else if (dm.tier) stats.dFuzzy++;
@@ -423,11 +481,8 @@ function buildOutputWorkbook(allRows, chMatcher, dmMatcher) {
       demoSeen[row.sourceDemo] = true;
       if (dm.tier !== 'exact') {
         reviewData.demo.push({
-          source: row.sourceDemo,
-          matched: dm.name || 'NO MATCH',
-          id: dm.id,
-          tier: tierLabel(dm.tier),
-          tierRaw: dm.tier,
+          source: row.sourceDemo, matched: dm.name || 'NO MATCH',
+          id: dm.id, tier: tierLabel(dm.tier), tierRaw: dm.tier,
           count: demoCounts[row.sourceDemo] || 0,
         });
       }
@@ -436,17 +491,14 @@ function buildOutputWorkbook(allRows, chMatcher, dmMatcher) {
       channelSeen[row.sourceChannel] = true;
       if (ch.tier !== 'exact') {
         reviewData.channel.push({
-          source: row.sourceChannel,
-          matched: ch.name || 'NO MATCH',
-          id: ch.id,
-          tier: tierLabel(ch.tier),
-          tierRaw: ch.tier,
+          source: row.sourceChannel, matched: ch.name || 'NO MATCH',
+          id: ch.id, tier: tierLabel(ch.tier), tierRaw: ch.tier,
           count: channelCounts[row.sourceChannel] || 0,
         });
       }
     }
 
-    aoa.push([
+    const dataRow = ws.addRow([
       i + 1, row.country, row.costType,
       row.sourceDemo, dm.name || row.sourceDemo,
       row.tvType, row.market,
@@ -459,43 +511,59 @@ function buildOutputWorkbook(allRows, chMatcher, dmMatcher) {
       ch.id != null ? ch.id : 'Not found',
       ch.id != null ? ch.id : 'Not found',
     ]);
+
+    const dFill = tierFill(dm.tier);
+    const cFill = tierFill(ch.tier);
+
+    // Demo col E (5), lookup cols R (18), S (19)
+    for (const c of [5, 18, 19]) dataRow.getCell(c).fill = dFill;
+    // Channel col I (9), lookup cols T (20), U (21)
+    for (const c of [9, 20, 21]) dataRow.getCell(c).fill = cFill;
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  // Auto-width for main sheet
+  ws.columns.forEach((col, i) => {
+    col.width = Math.max(headers[i] ? headers[i].length + 2 : 10, 12);
+  });
 
-  const chAoa = [
-    ['Channels/Stations'],
-    ['Run at', '', new Date().toLocaleDateString()],
-    ['Media Type', '', 'TV'],
-    [],
-    ['Media Type', '', 'Channel Name'],
-  ];
-  for (const c of CHANNELS_FULL) {
-    chAoa.push(['TV', c.id, c.name]);
-  }
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(chAoa), 'Channels');
+  // ---- Channels sheet ----
+  const wsC = wb.addWorksheet('Channels');
+  wsC.addRow(['Channels/Stations']);
+  wsC.addRow(['Run at', '', new Date().toLocaleDateString()]);
+  wsC.addRow(['Media Type', '', 'TV']);
+  wsC.addRow([]);
+  const chHdr = wsC.addRow(['Media Type', '', 'Channel Name']);
+  styleRow(chHdr, FILL_REF_HEADER, FONT_HEADER, ALIGN_CENTER);
+  for (const c of CHANNELS_FULL) wsC.addRow(['TV', c.id, c.name]);
 
-  const dmAoa = [
-    ['Target Audiences'],
-    ['Run at', new Date().toLocaleDateString()],
-    [],
-    ['##', 'Demo Name'],
-  ];
-  for (const d of DEMOS_FULL) {
-    dmAoa.push([d.id, d.name]);
-  }
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dmAoa), 'Demos');
+  // ---- Demos sheet ----
+  const wsD = wb.addWorksheet('Demos');
+  wsD.addRow(['Target Audiences']);
+  wsD.addRow(['Run at', new Date().toLocaleDateString()]);
+  wsD.addRow([]);
+  const dmHdr = wsD.addRow(['##', 'Demo Name']);
+  styleRow(dmHdr, FILL_REF_HEADER, FONT_HEADER, ALIGN_CENTER);
+  for (const d of DEMOS_FULL) wsD.addRow([d.id, d.name]);
 
-  const revAoa = [['Type', 'Source Value', 'Matched To', 'Match ID', 'Match Tier', 'Rows Affected']];
+  // ---- Review Matches sheet ----
+  const wsR = wb.addWorksheet('Review Matches');
+  const revHeaders = ['Type', 'Source Value', 'Matched To', 'Match ID', 'Match Tier', 'Rows Affected'];
+  const revHRow = wsR.addRow(revHeaders);
+  styleRow(revHRow, FILL_REVIEW_HEADER, FONT_HEADER, ALIGN_CENTER);
+
   for (const d of reviewData.demo) {
-    revAoa.push(['Demo', d.source, d.matched, d.id || '', d.tier, d.count]);
+    const r = wsR.addRow(['Demo', d.source, d.matched, d.id || '', d.tier, d.count]);
+    styleRow(r, d.tierRaw ? FILL_YELLOW : FILL_RED, null, null);
   }
-  revAoa.push([]);
+  wsR.addRow([]);
   for (const c of reviewData.channel) {
-    revAoa.push(['Channel', c.source, c.matched, c.id || '', c.tier, c.count]);
+    const r = wsR.addRow(['Channel', c.source, c.matched, c.id || '', c.tier, c.count]);
+    styleRow(r, c.tierRaw ? FILL_YELLOW : FILL_RED, null, null);
   }
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(revAoa), 'Review Matches');
+
+  wsR.columns.forEach((col, i) => {
+    col.width = Math.max(revHeaders[i].length + 4, 14);
+  });
 
   return { wb, stats };
 }
@@ -528,9 +596,23 @@ dropZone.addEventListener('drop', e => {
 });
 fileInput.addEventListener('change', e => handleFiles(e.target.files));
 
-$('downloadBtn').addEventListener('click', () => {
+$('downloadBtn').addEventListener('click', async () => {
   if (!outputWorkbook) return;
-  XLSX.writeFile(outputWorkbook, 'Baseline - TV CPU Yearly.xlsx');
+  $('downloadBtn').disabled = true;
+  $('downloadBtn').textContent = 'Generating...';
+  try {
+    const buffer = await outputWorkbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Baseline - TV CPU Yearly.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    $('downloadBtn').disabled = false;
+    $('downloadBtn').textContent = 'Download Baseline .xlsx';
+  }
 });
 
 document.querySelectorAll('.tab').forEach(tab => {
