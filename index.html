@@ -297,6 +297,28 @@ function cellStr(ws, addr) {
   return v != null ? String(v).trim() : '';
 }
 
+const AU_CITIES = [
+  'sydney','melbourne','brisbane','adelaide','perth',
+  'canberra','gold coast','hobart','darwin','newcastle',
+  'geelong','cairns','toowoomba','townsville','ballarat',
+  'bendigo','launceston','mackay','rockhampton','bunbury',
+  'regional','northern nsw','southern nsw','regional vic',
+  'regional qld','regional wa','regional sa','regional tas',
+];
+
+function splitAustralianChannel(channelRaw) {
+  const ch = channelRaw.trim();
+  const lower = ch.toLowerCase();
+  for (const city of AU_CITIES) {
+    if (lower.endsWith(' ' + city)) {
+      const channelPart = ch.slice(0, ch.length - city.length).trim();
+      const cityPart = ch.slice(ch.length - city.length).trim();
+      if (channelPart) return { channel: channelPart, city: cityPart };
+    }
+  }
+  return null;
+}
+
 function parseCommitmentFile(data, filename) {
   const wb = XLSX.read(data, { type: 'array' });
   const rows = [];
@@ -313,6 +335,9 @@ function parseCommitmentFile(data, filename) {
     }
   }
 
+  const isAustralia = countryName.toLowerCase().includes('australia')
+    || market.toLowerCase().includes('australia');
+
   for (const sn of wb.SheetNames) {
     if (!sn.startsWith('TV - ') && !sn.startsWith('TV -  ')) continue;
     const ws = wb.Sheets[sn];
@@ -326,21 +351,32 @@ function parseCommitmentFile(data, filename) {
     }
 
     for (let r = 26; r <= 1700; r++) {
-      const channel = cellStr(ws, 'B' + r);
-      if (!channel) continue;
+      const channelRaw = cellStr(ws, 'B' + r);
+      if (!channelRaw) continue;
       const cpp = cellVal(ws, 'U' + r);
       if (cpp == null || cpp === 0) continue;
       const costType = cellStr(ws, 'T' + r) || 'CPP';
       const salesHouse = cellStr(ws, 'C' + r);
       const agencyComm = cellVal(ws, 'S' + r);
 
+      let sourceChannel = channelRaw;
+      let rowMarket = market;
+
+      if (isAustralia) {
+        const split = splitAustralianChannel(channelRaw);
+        if (split) {
+          sourceChannel = split.channel;
+          rowMarket = split.city;
+        }
+      }
+
       rows.push({
         country: countryName,
         costType,
         sourceDemo: targetGroup,
-        sourceChannel: channel,
+        sourceChannel,
         tvType: natRegional || 'National',
-        market,
+        market: rowMarket,
         dealName: '',
         comments: '',
         repYear: '',
