@@ -125,6 +125,17 @@
     <span class="hint">More template types coming soon</span>
   </div>
 
+  <div class="template-selector">
+    <label for="mediaType">Media Type</label>
+    <select id="mediaType">
+      <option value="tv" selected>TV</option>
+      <option value="digital">Digital Categories</option>
+      <option value="social">Social</option>
+      <option value="programmatic">Programmatic</option>
+      <option value="ooh">OOH</option>
+    </select>
+  </div>
+
   <div class="drop-zone" id="dropZone">
     <h2>Drag &amp; drop files here</h2>
     <p>or <a id="browseLink">browse</a></p>
@@ -342,9 +353,9 @@ function parseCommitmentFile(data, filename) {
         sourceChannel: channel,
         tvType: natRegional || 'National',
         market,
-        dealName: "Dyson '26",
-        comments: salesHouse ? 'Sales House: ' + salesHouse : '',
-        repYear: "Dyson '26 Mar-Dec",
+        dealName: '',
+        comments: '',
+        repYear: '',
         cppCommit: cpp,
         discount: agencyComm || '',
       });
@@ -356,6 +367,119 @@ function parseCommitmentFile(data, filename) {
 function extractMarket(filename) {
   const m = filename.match(/_For_([^_]+)_/);
   return m ? m[1] : filename.replace(/\.xlsx?$/i, '');
+}
+
+function getCountryName(wb, market) {
+  const csName = wb.SheetNames.find(s => s === 'Contact details');
+  if (!csName) return market;
+  const cs = wb.Sheets[csName];
+  for (let r = 12; r <= 22; r++) {
+    const label = cellStr(cs, 'B' + r);
+    const val = cellStr(cs, 'C' + r);
+    if (label.includes('Country') && val) return val;
+  }
+  return market;
+}
+
+function parseDigitalFile(data, filename) {
+  const wb = XLSX.read(data, { type: 'array' });
+  const market = extractMarket(filename);
+  const countryName = getCountryName(wb, market);
+  const digital = [], social = [], programmatic = [];
+
+  for (const sn of wb.SheetNames) {
+    if (!sn.startsWith('Digital -')) continue;
+    const ws = wb.Sheets[sn];
+    let cgn = '';
+    for (let r = 16; r < 20; r++) {
+      const lab = cellStr(ws, 'B' + r);
+      const val = cellStr(ws, 'C' + r);
+      if (lab.includes('Cost Guarantee name') && val) cgn = val;
+    }
+    const isSocial = cgn.toLowerCase().includes('social');
+
+    for (let r = 28; r <= 170; r++) {
+      const site = cellStr(ws, 'B' + r);
+      if (!site) continue;
+      const tc = cellVal(ws, 'M' + r);
+      if (tc == null) continue;
+
+      const rd = {
+        country: countryName, market, bu: '',
+        siteCategory: cellStr(ws, 'E' + r),
+        website: site,
+        mediaType: cellStr(ws, 'D' + r),
+        rateType: cellStr(ws, 'F' + r),
+        targeting: cellStr(ws, 'I' + r),
+        format: cellStr(ws, 'G' + r),
+        deliveryPlatform: cellStr(ws, 'H' + r),
+        commitCpu: tc, discount: '', comments: '',
+        placement: '', dealName: '',
+        formatSize: cellStr(ws, 'K' + r),
+        videoLength: cellStr(ws, 'L' + r),
+        kpiDefinition: cellStr(ws, 'J' + r),
+        costGuaranteeName: cgn,
+      };
+
+      if (isSocial) {
+        social.push(rd);
+      } else {
+        const sc = rd.siteCategory.toLowerCase();
+        if (sc === 'programmatic/open auction' || sc === 'private marketplace') {
+          programmatic.push(rd);
+        }
+        digital.push(rd);
+      }
+    }
+  }
+  return { digital, social, programmatic };
+}
+
+function parseOOHFile(data, filename) {
+  const wb = XLSX.read(data, { type: 'array' });
+  const market = extractMarket(filename);
+  const countryName = getCountryName(wb, market);
+  const rows = [];
+
+  for (const sn of wb.SheetNames) {
+    if (!sn.includes('OOH')) continue;
+    const ws = wb.Sheets[sn];
+    let cgn = '';
+    for (let r = 16; r < 20; r++) {
+      const lab = cellStr(ws, 'B' + r);
+      const val = cellStr(ws, 'C' + r);
+      if (lab.includes('Cost Guarantee name') && val) cgn = val;
+    }
+    let oohType = sn.includes('Digital') ? 'OOH Digital' : 'OOH Static';
+    if (sn.includes('CPM')) oohType = 'OOH CPM';
+    const isCPM = sn.includes('CPM');
+
+    for (let r = 23; r <= 930; r++) {
+      const sup = cellStr(ws, 'B' + r);
+      if (!sup) continue;
+      const unitPrice = cellVal(ws, 'L' + r);
+      let numPanels = '', numWeeks = '';
+      if (isCPM) {
+        numPanels = ''; numWeeks = '';
+      } else {
+        numPanels = cellStr(ws, 'G' + r);
+        numWeeks = cellStr(ws, 'H' + r);
+      }
+      rows.push({
+        bu: '', country: countryName,
+        oohType, oohCategory: cgn || oohType,
+        publisherName: sup,
+        adFormat: cellStr(ws, 'E' + r),
+        regionCity: cellStr(ws, 'F' + r),
+        numPanels, numWeeks,
+        unitPrice: unitPrice || '',
+        discountPct: cellStr(ws, 'C' + r),
+        dealName: cellStr(ws, 'D' + r),
+        comments: '',
+      });
+    }
+  }
+  return rows;
 }
 
 // ============================================================================
@@ -450,7 +574,7 @@ function buildOutputWorkbook(allRows, chMatcher, dmMatcher) {
     }
 
     const dataRow = ws.addRow([
-      i + 1, row.country, row.costType,
+      '', row.country, row.costType,
       row.sourceDemo, dm.name || row.sourceDemo,
       row.tvType, row.market,
       row.sourceChannel, ch.name || row.sourceChannel,
@@ -527,6 +651,85 @@ function tierLabel(tier) {
   }[tier] || 'Unmatched';
 }
 
+function buildDigitalWorkbook(rows) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Combined Final');
+  const hdrs = ['ID','Country','Market','BU','SiteCategory','Website',
+    'Dig Type','Rate_Type','Placement','Targeting','Format',
+    'Delivery Platform','Deal Name','Commit. CPU','Discount',
+    'Comments','','Format Size','Video Length','KPI Definition'];
+  const hRow = ws.addRow(hdrs);
+  styleRow(hRow, FILL_HEADER, FONT_HEADER, ALIGN_CENTER);
+  for (const r of rows) {
+    ws.addRow(['', r.country, r.market, r.bu, r.siteCategory,
+      r.website, r.mediaType, r.rateType, r.placement,
+      r.targeting, r.format, r.deliveryPlatform, r.dealName,
+      r.commitCpu, r.discount, r.comments, '',
+      r.formatSize, r.videoLength, r.kpiDefinition]);
+  }
+  return wb;
+}
+
+function buildSocialWorkbook(rows) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Combined Final');
+  const hdrs = ['ID','Country','Market','BU','SiteCategory','Website',
+    'Social Type','Rate Type 1','Commit. CPU 1','Rate Type 2',
+    'Commit. CPU 2','Rate Type 3','Commit. CPU 3','Device Type',
+    'Placement','Targeting','Format','Delivery Platform',
+    'Discount','Comments'];
+  const hRow = ws.addRow(hdrs);
+  styleRow(hRow, FILL_HEADER, FONT_HEADER, ALIGN_CENTER);
+  for (const r of rows) {
+    ws.addRow(['', r.country, r.market, r.bu, r.siteCategory,
+      r.website, r.mediaType, r.rateType, r.commitCpu,
+      '', '', '', '', r.deliveryPlatform, r.placement,
+      r.targeting, r.format, r.deliveryPlatform,
+      r.discount, r.costGuaranteeName || '']);
+  }
+  return wb;
+}
+
+function buildProgrammaticWorkbook(rows) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Combined Final');
+  const hdrs = ['ID','Country','Market','BU','SiteCategory','Website',
+    'Prog Type','Rate Type 1','Commit. CPU 1','Rate Type 2',
+    'Commit. CPU 2','Rate Type 3','Commit. CPU 3','Placement',
+    'Targeting','Format','Delivery Platform','Deal Name',
+    'Discount','Comments'];
+  const hRow = ws.addRow(hdrs);
+  styleRow(hRow, FILL_HEADER, FONT_HEADER, ALIGN_CENTER);
+  for (const r of rows) {
+    ws.addRow(['', r.country, r.market, r.bu, r.siteCategory,
+      r.website, r.mediaType, r.rateType, r.commitCpu,
+      '', '', '', '', r.placement, r.targeting, r.format,
+      r.deliveryPlatform, r.dealName, r.discount,
+      r.costGuaranteeName || '']);
+  }
+  return wb;
+}
+
+function buildOOHWorkbook(rows) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Sheet1');
+  const hdrs = ['ID','BU','Country','OOH Type','OOH Category',
+    'Publisher Name','AdFormat','Region/City','Estimated Budget',
+    'Ratecard','Price Comm','Num Panels','Num Weeks',
+    'Num Free Panels','Cost Type','Deal Name','Unit Price',
+    'Discount%','Comments'];
+  const hRow = ws.addRow(hdrs);
+  styleRow(hRow, FILL_HEADER, FONT_HEADER, ALIGN_CENTER);
+  for (const r of rows) {
+    ws.addRow(['', r.bu, r.country, r.oohType, r.oohCategory,
+      r.publisherName, r.adFormat, r.regionCity,
+      '', '', '', r.numPanels, r.numWeeks, '',
+      r.unitPrice, r.dealName, r.unitPrice,
+      r.discountPct, r.comments]);
+  }
+  return wb;
+}
+
 // ============================================================================
 // UI
 // ============================================================================
@@ -547,6 +750,19 @@ dropZone.addEventListener('drop', e => {
 });
 fileInput.addEventListener('change', e => handleFiles(e.target.files));
 
+const MEDIA_LABELS = {
+  tv: 'TV', digital: 'Digital Categories', social: 'Social',
+  programmatic: 'Programmatic', ooh: 'OOH'
+};
+const DOWNLOAD_NAMES = {
+  tv: 'Baseline - TV CPU Yearly.xlsx',
+  digital: 'Baseline - Digital Categories.xlsx',
+  social: 'Baseline - Social.xlsx',
+  programmatic: 'Baseline - Programmatic Categories.xlsx',
+  ooh: 'Baseline - OOH.xlsx',
+};
+let currentMediaType = 'tv';
+
 $('downloadBtn').addEventListener('click', async () => {
   if (!outputWorkbook) return;
   $('downloadBtn').disabled = true;
@@ -557,7 +773,7 @@ $('downloadBtn').addEventListener('click', async () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Baseline - TV CPU Yearly.xlsx';
+    a.download = DOWNLOAD_NAMES[currentMediaType] || 'Baseline.xlsx';
     a.click();
     URL.revokeObjectURL(url);
   } finally {
@@ -570,55 +786,94 @@ async function handleFiles(fileList) {
   const files = Array.from(fileList).filter(f => /\.xlsx?$/i.test(f.name));
   if (!files.length) return;
 
+  currentMediaType = $('mediaType').value;
+  const label = MEDIA_LABELS[currentMediaType];
+
   statusDiv.classList.add('visible');
   resultsDiv.style.display = 'none';
-  $('statusTitle').textContent = 'Loading reference data...';
   $('progressFill').style.width = '0%';
   $('fileList').innerHTML = '';
 
-  await loadLookupData();
+  if (currentMediaType === 'tv') {
+    $('statusTitle').textContent = 'Loading reference data...';
+    await loadLookupData();
+  } else {
+    $('statusTitle').textContent = `Processing ${files.length} file${files.length > 1 ? 's' : ''}...`;
+  }
 
-  const chMatcher = new FuzzyMatcher(CHANNELS, false, 0.80);
-  const dmMatcher = new FuzzyMatcher(DEMOS, true, 0.75);
-
-  $('statusTitle').textContent = `Processing ${files.length} file${files.length > 1 ? 's' : ''}...`;
-  const allRows = [];
+  const allTV = [], allDigital = [], allSocial = [], allProg = [], allOOH = [];
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     const pct = Math.round(((i + 1) / files.length) * 100);
     $('progressFill').style.width = pct + '%';
-
     const data = await file.arrayBuffer();
-    const rows = parseCommitmentFile(new Uint8Array(data), file.name);
-    allRows.push(...rows);
+    const arr = new Uint8Array(data);
+    let rowCount = 0;
+
+    if (currentMediaType === 'tv') {
+      const rows = parseCommitmentFile(arr, file.name);
+      allTV.push(...rows);
+      rowCount = rows.length;
+    } else if (currentMediaType === 'ooh') {
+      const rows = parseOOHFile(arr, file.name);
+      allOOH.push(...rows);
+      rowCount = rows.length;
+    } else {
+      const { digital, social, programmatic } = parseDigitalFile(arr, file.name);
+      allDigital.push(...digital);
+      allSocial.push(...social);
+      allProg.push(...programmatic);
+      if (currentMediaType === 'digital') rowCount = digital.length;
+      else if (currentMediaType === 'social') rowCount = social.length;
+      else rowCount = programmatic.length;
+    }
 
     const li = document.createElement('li');
-    li.innerHTML = `<span class="check">&#10003;</span>${file.name} &mdash; ${rows.length} TV rows`;
+    li.innerHTML = `<span class="check">&#10003;</span>${file.name} &mdash; ${rowCount} ${label} rows`;
     $('fileList').appendChild(li);
   }
 
-  $('statusTitle').textContent = 'Running fuzzy matching...';
+  $('statusTitle').textContent = 'Building output...';
   $('progressFill').style.width = '100%';
-
   await new Promise(r => setTimeout(r, 50));
 
-  const { wb, stats } = buildOutputWorkbook(allRows, chMatcher, dmMatcher);
-  outputWorkbook = wb;
+  let totalRows = 0;
 
-  $('statusTitle').textContent = `Done! ${allRows.length} rows from ${files.length} file${files.length > 1 ? 's' : ''}.`;
+  if (currentMediaType === 'tv') {
+    const chMatcher = new FuzzyMatcher(CHANNELS, false, 0.80);
+    const dmMatcher = new FuzzyMatcher(DEMOS, true, 0.75);
+    const { wb, stats } = buildOutputWorkbook(allTV, chMatcher, dmMatcher);
+    outputWorkbook = wb;
+    totalRows = allTV.length;
+    $('statsGrid').innerHTML = `
+      <div class="stat-card"><div class="value">${totalRows}</div><div class="label">Total TV Rows</div></div>
+      <div class="stat-card green"><div class="value">${stats.dExact}</div><div class="label">Demo Exact</div></div>
+      <div class="stat-card yellow"><div class="value">${stats.dFuzzy}</div><div class="label">Demo Fuzzy</div></div>
+      <div class="stat-card red"><div class="value">${stats.dMiss}</div><div class="label">Demo No Match</div></div>
+      <div class="stat-card green"><div class="value">${stats.cExact}</div><div class="label">Channel Exact</div></div>
+      <div class="stat-card yellow"><div class="value">${stats.cFuzzy}</div><div class="label">Channel Fuzzy</div></div>
+      <div class="stat-card red"><div class="value">${stats.cMiss}</div><div class="label">Channel No Match</div></div>
+    `;
+  } else if (currentMediaType === 'digital') {
+    outputWorkbook = buildDigitalWorkbook(allDigital);
+    totalRows = allDigital.length;
+    $('statsGrid').innerHTML = `<div class="stat-card"><div class="value">${totalRows}</div><div class="label">Total Digital Rows</div></div>`;
+  } else if (currentMediaType === 'social') {
+    outputWorkbook = buildSocialWorkbook(allSocial);
+    totalRows = allSocial.length;
+    $('statsGrid').innerHTML = `<div class="stat-card"><div class="value">${totalRows}</div><div class="label">Total Social Rows</div></div>`;
+  } else if (currentMediaType === 'programmatic') {
+    outputWorkbook = buildProgrammaticWorkbook(allProg);
+    totalRows = allProg.length;
+    $('statsGrid').innerHTML = `<div class="stat-card"><div class="value">${totalRows}</div><div class="label">Total Programmatic Rows</div></div>`;
+  } else if (currentMediaType === 'ooh') {
+    outputWorkbook = buildOOHWorkbook(allOOH);
+    totalRows = allOOH.length;
+    $('statsGrid').innerHTML = `<div class="stat-card"><div class="value">${totalRows}</div><div class="label">Total OOH Rows</div></div>`;
+  }
 
-  const total = allRows.length;
-  $('statsGrid').innerHTML = `
-    <div class="stat-card"><div class="value">${total}</div><div class="label">Total TV Rows</div></div>
-    <div class="stat-card green"><div class="value">${stats.dExact}</div><div class="label">Demo Exact</div></div>
-    <div class="stat-card yellow"><div class="value">${stats.dFuzzy}</div><div class="label">Demo Fuzzy</div></div>
-    <div class="stat-card red"><div class="value">${stats.dMiss}</div><div class="label">Demo No Match</div></div>
-    <div class="stat-card green"><div class="value">${stats.cExact}</div><div class="label">Channel Exact</div></div>
-    <div class="stat-card yellow"><div class="value">${stats.cFuzzy}</div><div class="label">Channel Fuzzy</div></div>
-    <div class="stat-card red"><div class="value">${stats.cMiss}</div><div class="label">Channel No Match</div></div>
-  `;
-
+  $('statusTitle').textContent = `Done! ${totalRows} ${label} rows from ${files.length} file${files.length > 1 ? 's' : ''}.`;
   resultsDiv.style.display = 'block';
   $('downloadBtn').disabled = false;
 }
