@@ -599,9 +599,9 @@ function buildOutputWorkbook(allRows, chMatcher, dmMatcher) {
 
     const dataRow = ws.addRow([
       '', row.country, row.costType,
-      row.sourceDemo, dm.name || row.sourceDemo,
+      row.sourceDemo, dm.name || '',
       row.tvType, row.market,
-      row.sourceChannel, ch.name || row.sourceChannel,
+      row.sourceChannel, ch.name || '',
       '', row.dealName, row.comments, row.repYear,
       row.cppCommit, row.discount, '',
       '',
